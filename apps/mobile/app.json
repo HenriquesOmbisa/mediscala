@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "MediScala",
+    "slug": "mediscala",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#2563eb"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#2563eb"
+      },
+      "package": "com.mediscala.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.mediscala.app",
+      "supportsTablet": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#2563eb"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "A MediScala precisa de aceder às fotos para atualizar o seu perfil.",
+          "cameraPermission": "A app pode usar a câmara para a foto de perfil."
+        }
+      ],
+      "expo-asset",
+      "expo-font",
+      "expo-secure-store"
+    ],
+    "scheme": "mediscala",
+    "platforms": ["android", "ios"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
