@@ -161,6 +161,8 @@ export default function CollaboratorLayout(): ReactElement {
       <Tabs.Screen name="notifications" options={{ title: "Notificações" }} />
       <Tabs.Screen name="profile" options={{ title: "Perfil" }} />
       <Tabs.Screen name="edit-profile" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="change-password" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="swap-request" options={{ href: null, headerShown: false }} />
     </Tabs>
   );
 }
