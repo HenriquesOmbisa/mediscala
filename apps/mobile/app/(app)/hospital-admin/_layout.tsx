@@ -161,6 +161,11 @@ export default function HospitalAdminLayout(): ReactElement {
       <Tabs.Screen name="notifications" options={{ title: "Notificações" }} />
       <Tabs.Screen name="profile" options={{ title: "Perfil" }} />
       <Tabs.Screen name="edit-profile" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="shift-detail" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="change-password" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="users" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="departments" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="institution" options={{ href: null, headerShown: false }} />
     </Tabs>
   );
 }

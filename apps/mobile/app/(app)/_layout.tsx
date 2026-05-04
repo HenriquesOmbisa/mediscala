@@ -34,6 +34,7 @@ export default function AppLayout(): ReactElement | null {
         <Stack.Screen name="notifications" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="edit-profile" />
+        <Stack.Screen name="shift-detail" options={{ headerShown: true, headerTitle: "Detalhe do Turno", headerStyle: { backgroundColor: "#162B4A" }, headerTintColor: "#fff", headerTitleStyle: { color: "#fff", fontWeight: "700" } }} />
       </Stack>
       <Redirect href={initialRoute} />
     </>

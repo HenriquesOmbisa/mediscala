@@ -1061,6 +1061,38 @@ export const coverageRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // GET /coverage/swaps/my — collaborator sees swaps they initiated
+  fastify.get("/swaps/my", async (request, reply) => {
+    const userId = request.user.sub;
+    const client = await getTenantClient(request.tenantSlug);
+    try {
+      const { rows } = await client.query(
+        `SELECT cr.id, cr.status, cr.swap_status, cr.created_at, cr.expires_at,
+                source_shift.name AS source_shift_name,
+                source_shift.start_datetime AS source_start_datetime,
+                source_shift.end_datetime AS source_end_datetime,
+                target_shift.name AS target_shift_name,
+                target_shift.start_datetime AS target_start_datetime,
+                target_shift.end_datetime AS target_end_datetime,
+                target_user.name AS target_user_name
+         FROM coverage_requests cr
+         JOIN shift_assignments source_sa ON source_sa.id = cr.source_assignment_id
+         JOIN shift_assignments target_sa ON target_sa.id = cr.target_assignment_id
+         JOIN shifts source_shift ON source_shift.id = source_sa.shift_id
+         JOIN shifts target_shift ON target_shift.id = target_sa.shift_id
+         JOIN users target_user ON target_user.id = target_sa.user_id
+         WHERE cr.type = 'SWAP'
+           AND cr.requested_by = $1
+         ORDER BY cr.created_at DESC
+         LIMIT 50`,
+        [userId],
+      );
+      return reply.send({ data: rows });
+    } finally {
+      client.release();
+    }
+  });
+
   // GET /coverage/my — collaborator sees their own coverage requests
   fastify.get("/my", async (request, reply) => {
     const userId = request.user.sub;

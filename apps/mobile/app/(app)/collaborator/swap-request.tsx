@@ -187,7 +187,7 @@ export default function SwapRequestScreen(): ReactElement {
       ) : (
         <FlatList
           data={targetShifts}
-          keyExtractor={(item) => item.assignmentId}
+          keyExtractor={(item) => item.assignmentId ?? `${item.shiftId}-${item.userId}`}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 140 }}
           renderItem={({ item }) => {
             const isSelected = selectedAssignmentId === item.assignmentId;

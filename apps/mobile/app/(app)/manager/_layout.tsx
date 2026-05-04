@@ -161,6 +161,8 @@ export default function ManagerLayout(): ReactElement {
       <Tabs.Screen name="notifications" options={{ title: "Notificações" }} />
       <Tabs.Screen name="profile" options={{ title: "Perfil" }} />
       <Tabs.Screen name="edit-profile" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="shift-detail" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen name="change-password" options={{ href: null, headerShown: false }} />
     </Tabs>
   );
 }
