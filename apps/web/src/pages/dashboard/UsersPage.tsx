@@ -13,6 +13,9 @@ import {
   UserCheck,
   UserX,
   PanelRightOpen,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -71,6 +74,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { UserDetailSheet } from "@/components/user/UserDetailSheet";
 import { departmentTriggerLabel } from "@/lib/department-label";
+import { useAuthStore } from "@/store/auth.store";
 
 type UserRow = {
   id: string;
@@ -85,6 +89,15 @@ type UserRow = {
   active: boolean;
   created_at: string;
 };
+
+function normalizeUserRow(user: Omit<UserRow, "contract_hours_week"> & {
+  contract_hours_week: number | string | null;
+}): UserRow {
+  return {
+    ...user,
+    contract_hours_week: Number(user.contract_hours_week) || 40,
+  };
+}
 
 const roles: Record<string, string> = {
   HOSPITAL_ADMIN: "Admin",
@@ -108,6 +121,45 @@ const emptyCreate = () => ({
   departmentId: undefined as string | undefined,
 });
 
+function formatApiErrorMessage(message: unknown, fallback: string) {
+  if (typeof message === "string" && message.trim()) return message;
+
+  if (message && typeof message === "object") {
+    const maybeZod = message as {
+      formErrors?: unknown;
+      fieldErrors?: Record<string, unknown>;
+    };
+
+    if (Array.isArray(maybeZod.formErrors) && maybeZod.formErrors.length > 0) {
+      const text = maybeZod.formErrors.find(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      );
+      if (text) return text;
+    }
+
+    if (maybeZod.fieldErrors && typeof maybeZod.fieldErrors === "object") {
+      const entries = Object.entries(maybeZod.fieldErrors)
+        .flatMap(([field, value]) => {
+          if (!Array.isArray(value)) return [];
+          return value
+            .filter(
+              (item): item is string => typeof item === "string" && item.trim().length > 0,
+            )
+            .map((item) => `${field}: ${item}`);
+        });
+
+      if (entries.length > 0) return entries.join(" | ");
+    }
+  }
+
+  return fallback;
+}
+
+function normalizeOptionalText(value: string) {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function FormField({
   label,
   children,
@@ -124,6 +176,8 @@ function FormField({
 }
 
 export function UsersPage() {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user?.role === "HOSPITAL_ADMIN";
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState(emptyCreate);
@@ -135,21 +189,37 @@ export function UsersPage() {
     role: "COLLABORATOR",
     contractHoursWeek: 40,
     specialty: "",
-    departmentId: "" as string | undefined,
+    departmentId: undefined as string | undefined,
   });
   const [editError, setEditError] = useState<string | null>(null);
   const [deactivateUser, setDeactivateUser] = useState<UserRow | null>(null);
   const [detailUser, setDetailUser] = useState<UserRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 20;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["users"],
+    queryKey: ["users", page, search],
     queryFn: async () => {
-      const res = await api.get("/users");
-      return res.data as {
-        data: UserRow[];
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (search.trim()) params.set("search", search.trim());
+      const res = await api.get(`/users?${params}`);
+      const payload = res.data as {
+        data: Array<Omit<UserRow, "contract_hours_week"> & {
+          contract_hours_week: number | string | null;
+        }>;
         total: number;
         page: number;
         pageSize: number;
+        totalPages: number;
+      };
+
+      return {
+        ...payload,
+        data: payload.data.map(normalizeUserRow),
       };
     },
   });
@@ -165,6 +235,13 @@ export function UsersPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDeactivateUser(null);
+    },
+  });
+
+  const reactivate = useMutation({
+    mutationFn: (id: string) => api.patch(`/users/${id}/reactivate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 
@@ -188,7 +265,7 @@ export function UsersPage() {
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: unknown } } };
       const msg = e.response?.data?.message;
-      setFormError(typeof msg === "string" ? msg : "Erro ao criar utilizador");
+      setFormError(formatApiErrorMessage(msg, "Erro ao criar utilizador"));
     },
   });
 
@@ -210,7 +287,7 @@ export function UsersPage() {
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: unknown } } };
       const msg = e.response?.data?.message;
-      setEditError(typeof msg === "string" ? msg : "Erro ao atualizar");
+      setEditError(formatApiErrorMessage(msg, "Erro ao atualizar"));
     },
   });
 
@@ -220,7 +297,7 @@ export function UsersPage() {
       name: u.name,
       email: u.email,
       role: u.role,
-      contractHoursWeek: u.contract_hours_week,
+      contractHoursWeek: Number(u.contract_hours_week) || 40,
       specialty: u.specialty ?? "",
       departmentId: u.department_id ?? undefined,
     });
@@ -240,26 +317,45 @@ export function UsersPage() {
           </h2>
           <p className="text-slate-500 mt-1 text-sm">Equipa e departamentos</p>
         </div>
-        <Button
-          className="gap-2 rounded-xl bg-[#0B1F3A] hover:bg-[#0f2a4d] shadow-sm"
-          onClick={() => { setCreateOpen(true); setFormError(null); }}
-        >
-          <Plus size={16} />
-          Novo utilizador
-        </Button>
+        {isAdmin ? (
+          <Button
+            className="gap-2 rounded-xl bg-[#0B1F3A] hover:bg-[#0f2a4d] shadow-sm"
+            onClick={() => { setCreateOpen(true); setFormError(null); }}
+          >
+            <Plus size={16} />
+            Novo utilizador
+          </Button>
+        ) : null}
       </div>
 
-      {/* ── Summary stats ── */}
-      {!isLoading && data && (
-        <div className="flex items-center gap-3">
-          <Badge variant="secondary" className="text-xs font-semibold">
-            {data.total} utilizadores
-          </Badge>
-          <Badge variant="outline" className="text-xs bg-teal-50 text-teal-700 border-teal-200">
-            {data.data.filter((u) => u.active).length} ativos
-          </Badge>
+      {!isAdmin ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Gestores podem consultar a equipa, mas criar, editar função/dados críticos e desativar utilizadores é reservado ao administrador.
         </div>
-      )}
+      ) : null}
+
+      {/* ── Summary stats + Search ── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {!isLoading && data && (
+          <div className="flex items-center gap-3">
+            <Badge variant="secondary" className="text-xs font-semibold">
+              {data.total} utilizadores
+            </Badge>
+            <Badge variant="outline" className="text-xs bg-teal-50 text-teal-700 border-teal-200">
+              {data.data.filter((u) => u.active).length} ativos
+            </Badge>
+          </div>
+        )}
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <Input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Pesquisar por nome ou email…"
+            className="pl-9 rounded-xl h-10"
+          />
+        </div>
+      </div>
 
       {/* ── Table ── */}
       <Card className="rounded-2xl border-slate-200/70 shadow-sm overflow-hidden">
@@ -279,11 +375,11 @@ export function UsersPage() {
             </TableHeader>
             <TableBody>
               {isLoading &&
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i} className="border-slate-50">
+                ["user-skeleton-1", "user-skeleton-2", "user-skeleton-3", "user-skeleton-4", "user-skeleton-5"].map((rowKey) => (
+                  <TableRow key={rowKey} className="border-slate-50">
                     <TableCell><Skeleton className="w-9 h-9 rounded-full" /></TableCell>
-                    {Array.from({ length: 6 }).map((_, j) => (
-                      <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                    {["c1", "c2", "c3", "c4", "c5", "c6"].map((cellKey) => (
+                      <TableCell key={`${rowKey}-${cellKey}`}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                     <TableCell />
                   </TableRow>
@@ -354,37 +450,50 @@ export function UsersPage() {
                       >
                         <PanelRightOpen className="h-4 w-4" />
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          type="button"
-                          className={cn(
-                            buttonVariants({ variant: "ghost", size: "icon" }),
-                            "h-8 w-8 rounded-lg shrink-0",
-                          )}
-                        >
-                          <MoreHorizontal className="h-4 w-4 text-slate-400" />
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                          align="end"
-                          className="rounded-xl w-44 shadow-lg"
-                        >
-                          <DropdownMenuItem
-                            onClick={() => openEdit(user)}
-                            className="rounded-lg cursor-pointer"
+                      {isAdmin ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger
+                            type="button"
+                            className={cn(
+                              buttonVariants({ variant: "ghost", size: "icon" }),
+                              "h-8 w-8 rounded-lg shrink-0",
+                            )}
                           >
-                            <Pencil className="mr-2 h-4 w-4 text-slate-400" />
-                            Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            className="text-red-600 focus:text-red-600 focus:bg-red-50 rounded-lg cursor-pointer"
-                            onClick={() => setDeactivateUser(user)}
+                            <MoreHorizontal className="h-4 w-4 text-slate-400" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent
+                            align="end"
+                            className="rounded-xl w-44 shadow-lg"
                           >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Desativar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuItem
+                              onClick={() => openEdit(user)}
+                              className="rounded-lg cursor-pointer"
+                            >
+                              <Pencil className="mr-2 h-4 w-4 text-slate-400" />
+                              Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            {user.active ? (
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-600 focus:bg-red-50 rounded-lg cursor-pointer"
+                                onClick={() => setDeactivateUser(user)}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Desativar
+                              </DropdownMenuItem>
+                            ) : (
+                              <DropdownMenuItem
+                                className="text-teal-700 focus:text-teal-700 focus:bg-teal-50 rounded-lg cursor-pointer"
+                                disabled={reactivate.isPending}
+                                onClick={() => reactivate.mutate(user.id)}
+                              >
+                                <UserCheck className="mr-2 h-4 w-4" />
+                                Reativar
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -394,8 +503,37 @@ export function UsersPage() {
         </ScrollArea>
       </Card>
 
+      {/* ── Pagination ── */}
+      {data && data.totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm text-slate-600">
+          <p>
+            Página {data.page} de {data.totalPages} · {data.total} utilizadores
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-lg"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 rounded-lg"
+              disabled={page >= data.totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── Create Dialog ── */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={createOpen && isAdmin} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -634,13 +772,32 @@ export function UsersPage() {
               className="rounded-xl bg-[#0B1F3A] hover:bg-[#0f2a4d]"
               onClick={() => {
                 if (!editUser) return;
+
+                const name = editForm.name.trim();
+                const email = editForm.email.trim().toLowerCase();
+
+                if (!name) {
+                  setEditError("O nome do utilizador é obrigatório.");
+                  return;
+                }
+
+                if (!email) {
+                  setEditError("O email do utilizador é obrigatório.");
+                  return;
+                }
+
+                if (!Number.isFinite(editForm.contractHoursWeek)) {
+                  setEditError("As horas semanais devem ser um número válido.");
+                  return;
+                }
+
                 updateUser.mutate({
                   id: editUser.id,
-                  name: editForm.name,
-                  email: editForm.email,
+                  name,
+                  email,
                   role: editForm.role,
                   contractHoursWeek: editForm.contractHoursWeek,
-                  specialty: editForm.specialty.trim() ? editForm.specialty : null,
+                  specialty: normalizeOptionalText(editForm.specialty),
                   departmentId: editForm.departmentId || null,
                 });
               }}

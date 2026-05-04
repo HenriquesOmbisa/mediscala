@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation } from "@tanstack/react-query";
 import { LoginSchema } from "@mediscala/shared";
-import { Eye, EyeOff, Activity, Lock, Mail, ArrowRight, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, ArrowRight, Loader2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useAuthStore } from "../../store/auth.store";
 import { Button } from "@/components/ui/button";
@@ -10,16 +10,32 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 
 const REMEMBER_KEY = "mediscala-saved-email";
+
+function getLoginErrorMessage(err: unknown): string {
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "response" in err &&
+    typeof (err as { response?: unknown }).response === "object" &&
+    (err as { response?: unknown }).response !== null
+  ) {
+    const response = (err as { response?: { data?: { message?: string } } }).response;
+    const message = response?.data?.message;
+    if (typeof message === "string" && message.trim()) {
+      return message;
+    }
+  }
+  return "Credenciais inválidas";
+}
 
 export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
@@ -39,27 +55,28 @@ export function LoginPage() {
     },
     onSuccess: (data) => {
       if (rememberMe) {
-        localStorage.setItem(REMEMBER_KEY, email);
+        localStorage.setItem(REMEMBER_KEY, email.trim().toLowerCase());
       } else {
         localStorage.removeItem(REMEMBER_KEY);
       }
       setAuth(data.accessToken, data.user);
       navigate({ to: "/dashboard" });
     },
-    onError: (err: any) => {
-      setError(err.response?.data?.message || "Credenciais inválidas");
+    onError: (err: unknown) => {
+      setError(getLoginErrorMessage(err));
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const parsed = LoginSchema.safeParse({ email, password });
+    const normalizedEmail = email.trim().toLowerCase();
+    const parsed = LoginSchema.safeParse({ email: normalizedEmail, password });
     if (!parsed.success) {
       setError("Email ou password inválidos");
       return;
     }
-    mutation.mutate({ email, password });
+    mutation.mutate({ email: normalizedEmail, password });
   };
 
   return (
@@ -74,7 +91,7 @@ export function LoginPage() {
           <div
             className="absolute inset-0 opacity-[0.03]"
             style={{
-              backgroundImage: `linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)`,
+              backgroundImage: "linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)",
               backgroundSize: "48px 48px",
             }}
           />
@@ -83,9 +100,14 @@ export function LoginPage() {
         <div className="relative z-10 flex flex-col h-full p-12">
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-400/20 border border-teal-400/30 flex items-center justify-center">
-              <Activity size={20} className="text-teal-400" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="MediScala"
+              className="w-10 h-10 object-contain"
+              onError={(e) => {
+                e.currentTarget.src = "/logo-dark.png";
+              }}
+            />
             <span className="text-xl font-bold text-white tracking-tight">
               Medi<span className="text-teal-400">Scala</span>
             </span>
@@ -133,13 +155,11 @@ export function LoginPage() {
       </div>
 
       {/* ── Right Panel ─────────────────────────────────────── */}
-      <div className="flex-1 flex items-center justify-center px-6 py-12">
+      <div className="flex-1 flex items-center justify-center px-6 py-12 bg-[radial-gradient(circle_at_top,_rgba(15,110,86,0.06),_transparent_40%)]">
         <div className="w-full max-w-[400px]">
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">
-            <div className="w-8 h-8 rounded-lg bg-[#0B1F3A] flex items-center justify-center">
-              <Activity size={16} className="text-teal-400" />
-            </div>
+            <img src="/logo-dark.png" alt="MediScala" className="w-8 h-8 object-contain" />
             <span className="text-lg font-bold text-[#0B1F3A]">
               Medi<span className="text-teal-500">Scala</span>
             </span>
@@ -147,6 +167,9 @@ export function LoginPage() {
 
           {/* Header */}
           <div className="mb-8">
+            <p className="text-[11px] uppercase tracking-[0.12em] font-semibold text-slate-500 mb-2">
+              Painel Administrativo
+            </p>
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
               Bem-vindo de volta
             </h2>
@@ -170,8 +193,10 @@ export function LoginPage() {
                     autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    disabled={mutation.isPending}
                     className="pl-10 rounded-xl border-slate-200 bg-slate-50 focus:bg-white focus-visible:ring-teal-500 focus-visible:border-teal-400 transition-all h-11"
                     placeholder="nome@hospital.pt"
+                    autoFocus
                     required
                   />
                 </div>
@@ -189,6 +214,9 @@ export function LoginPage() {
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    onKeyUp={(e) => setCapsLockOn(e.getModifierState("CapsLock"))}
+                    onBlur={() => setCapsLockOn(false)}
+                    disabled={mutation.isPending}
                     className="pl-10 pr-11 rounded-xl border-slate-200 bg-slate-50 focus:bg-white focus-visible:ring-teal-500 focus-visible:border-teal-400 transition-all h-11"
                     placeholder="••••••••"
                     required
@@ -197,26 +225,41 @@ export function LoginPage() {
                     type="button"
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-0.5"
                     onClick={() => setShowPassword((v) => !v)}
-                    tabIndex={-1}
+                    disabled={mutation.isPending}
+                    aria-label={showPassword ? "Ocultar password" : "Mostrar password"}
                   >
                     {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
+                {capsLockOn && (
+                  <p className="text-xs text-amber-700 mt-1.5">
+                    Caps Lock está ativo.
+                  </p>
+                )}
               </div>
 
-              <div className="flex items-center gap-2.5">
-                <Checkbox
-                  id="remember-me"
-                  checked={rememberMe}
-                  onCheckedChange={(v) => setRememberMe(v as boolean)}
-                  className="border-slate-300 data-[state=checked]:bg-teal-500 data-[state=checked]:border-teal-500"
-                />
-                <Label
-                  htmlFor="remember-me"
-                  className="text-sm text-slate-600 cursor-pointer font-normal"
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5">
+                  <Checkbox
+                    id="remember-me"
+                    checked={rememberMe}
+                    onCheckedChange={(v) => setRememberMe(v as boolean)}
+                    disabled={mutation.isPending}
+                    className="border-slate-300 data-[state=checked]:bg-teal-500 data-[state=checked]:border-teal-500"
+                  />
+                  <Label
+                    htmlFor="remember-me"
+                    className="text-sm text-slate-600 cursor-pointer font-normal"
+                  >
+                    Lembrar email
+                  </Label>
+                </div>
+                <a
+                  href="mailto:suporte@mediscala.co.ao?subject=Recuperacao%20de%20acesso"
+                  className="text-xs font-medium text-teal-700 hover:text-teal-800"
                 >
-                  Lembrar o meu email
-                </Label>
+                  Esqueceu a password?
+                </a>
               </div>
 
               {error && (
@@ -242,6 +285,10 @@ export function LoginPage() {
                   </>
                 )}
               </Button>
+
+              <p className="text-[11px] text-slate-400 text-center mt-3 leading-relaxed">
+                Acesso restrito a utilizadores autorizados. Ao entrar, aceita os Termos e a Política de Privacidade.
+              </p>
             </form>
           </div>
 

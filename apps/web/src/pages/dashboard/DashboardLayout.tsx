@@ -1,4 +1,6 @@
+import type React from "react";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -7,18 +9,18 @@ import {
   AlertCircle,
   Shield,
   LogOut,
-  Activity,
   ChevronRight,
   CalendarClock,
   UserCircle,
+  Wallet,
+  Building,
 } from "lucide-react";
 import { useAuthStore } from "../../store/auth.store";
 import { logoutSession } from "@/lib/auth-session";
+import { api } from "@/lib/api";
 import { publicAssetUrl } from "@/lib/public-url";
 import { useWebSocket } from "../../hooks/useWebSocket";
-import { useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,14 +30,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const navItems = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: React.ElementType;
+  exact?: boolean;
+  /** If set, only users with one of these roles can see this item */
+  roles?: string[];
+};
+
+const navItems: NavItem[] = [
   { to: "/dashboard", label: "Visão Geral", icon: LayoutDashboard, exact: true },
   { to: "/dashboard/shifts", label: "Turnos", icon: Calendar },
-  { to: "/dashboard/coverage", label: "Cobertura", icon: Shield },
-  { to: "/dashboard/leave-requests", label: "Pedidos", icon: CalendarClock },
-  { to: "/dashboard/absences", label: "Faltas", icon: AlertCircle },
-  { to: "/dashboard/users", label: "Utilizadores", icon: Users },
-  { to: "/dashboard/departments", label: "Departamentos", icon: Building2 },
+  { to: "/dashboard/coverage", label: "Cobertura", icon: Shield, roles: ["HOSPITAL_ADMIN", "MANAGER"] },
+  { to: "/dashboard/absences", label: "Faltas", icon: AlertCircle, roles: ["HOSPITAL_ADMIN", "MANAGER"] },
+  { to: "/dashboard/leave-requests", label: "Pedidos", icon: CalendarClock, roles: ["HOSPITAL_ADMIN", "MANAGER"] },
+  { to: "/dashboard/users", label: "Utilizadores", icon: Users, roles: ["HOSPITAL_ADMIN", "MANAGER"] },
+  { to: "/dashboard/departments", label: "Departamentos", icon: Building2, roles: ["HOSPITAL_ADMIN", "MANAGER"] },
+  { to: "/dashboard/institution", label: "Instituição", icon: Building, roles: ["HOSPITAL_ADMIN", "MANAGER"] },
+  { to: "/dashboard/billing/plan", label: "Financeiro", icon: Wallet, roles: ["HOSPITAL_ADMIN"] },
 ];
 
 const roleLabel: Record<string, string> = {
@@ -56,6 +69,26 @@ export function DashboardLayout() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const { data: institutionData } = useQuery({
+    queryKey: ["billing", "current-plan"],
+    queryFn: async () => {
+      const res = await api.get("/billing/current-plan");
+      return res.data.data as {
+        tenant?: {
+          name?: string;
+          slug?: string;
+          logoUrl?: string | null;
+          brandDisplayMode?: "LOGO_AND_NAME" | "LOGO_ONLY" | null;
+        };
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const institutionName = institutionData?.tenant?.name ?? user?.tenantSlug ?? "Instituição";
+  const brandDisplayMode = institutionData?.tenant?.brandDisplayMode ?? "LOGO_AND_NAME";
+  const institutionLogoSrc = publicAssetUrl(institutionData?.tenant?.logoUrl);
 
   useWebSocket({
     notification: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
@@ -80,23 +113,35 @@ export function DashboardLayout() {
     .join("")
     .toUpperCase() ?? "U";
 
+  const visibleNavItems = navItems.filter(
+    (item) => !item.roles || item.roles.includes(user?.role ?? ""),
+  );
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
         {/* ── Sidebar ───────────────────────────────────────── */}
         <aside className="w-[240px] bg-[#0B1F3A] flex flex-col shrink-0">
           {/* Logo */}
           <div className="px-5 py-5 flex items-center gap-3 border-b border-white/5">
-            <div className="w-8 h-8 rounded-lg bg-teal-400/15 border border-teal-400/20 flex items-center justify-center shrink-0">
-              <Activity size={16} className="text-teal-400" />
-            </div>
-            <div>
-              <p className="text-base font-bold text-white leading-none">
-                Medi<span className="text-teal-400">Scala</span>
-              </p>
-              <p className="text-[10px] text-slate-500 tracking-widest uppercase mt-0.5">
-                Escalas · Equipa
-              </p>
-            </div>
+            <Avatar className="w-8 h-8 shrink-0 rounded-md bg-transparent ring-1 ring-white/10">
+              <AvatarImage src={institutionLogoSrc ?? undefined} alt={institutionName} className="object-contain" />
+              <AvatarFallback className="bg-transparent p-1">
+                <img src="/logo-dark.png" alt="MediScala" className="w-full h-full object-contain" />
+              </AvatarFallback>
+            </Avatar>
+            {brandDisplayMode !== "LOGO_ONLY" ? (
+              <div className="min-w-0">
+                <p
+                  className="text-sm font-semibold text-white leading-none truncate max-w-[165px]"
+                  title={institutionName}
+                >
+                  {institutionName}
+                </p>
+                <p className="text-[10px] text-slate-500 tracking-widest uppercase mt-0.5">
+                  Painel administrativo
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {/* Nav */}
@@ -104,7 +149,7 @@ export function DashboardLayout() {
               <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest px-3 mb-4">
                 Navegação
               </p>
-              {navItems.map(({ to, label, icon: Icon }) => (
+              {visibleNavItems.map(({ to, label, icon: Icon }) => (
                 <Link
                   key={to}
                   to={to}

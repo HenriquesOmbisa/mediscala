@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   CheckCircle2,
   Loader2,
@@ -27,6 +28,7 @@ import {
   XCircle,
   ArrowRight,
   AlertCircle,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +84,13 @@ export function LeaveRequestsPage() {
         .data as PendingLeaveRow[],
   });
 
+  const { data: decided, isLoading: decidedLoading } = useQuery({
+    queryKey: ["decided-leave-requests"],
+    queryFn: async () =>
+      (await api.get("/users/decided-leave-requests")).data
+        .data as PendingLeaveRow[],
+  });
+
   const decideLeave = useMutation({
     mutationFn: async ({
       userId,
@@ -95,6 +104,7 @@ export function LeaveRequestsPage() {
       api.patch(`/users/${userId}/leave-blocks/${blockId}`, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pending-leave-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["decided-leave-requests"] });
       queryClient.invalidateQueries({ queryKey: ["user-leave-blocks"] });
       queryClient.invalidateQueries({ queryKey: ["shifts"] });
     },
@@ -128,6 +138,24 @@ export function LeaveRequestsPage() {
         </Link>
       </div>
 
+      <Tabs defaultValue="pending" className="space-y-4">
+        <TabsList className="rounded-xl bg-slate-100/70 border border-slate-200/60 p-1">
+          <TabsTrigger value="pending" className="rounded-lg gap-1.5 text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <CalendarClock className="size-4" />
+            Pendentes
+            {!pendingLoading && (pending?.length ?? 0) > 0 && (
+              <Badge className="ml-1 h-5 px-1.5 text-[10px] bg-amber-500 hover:bg-amber-500 text-white rounded-full">
+                {pending?.length}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="history" className="rounded-lg gap-1.5 text-sm data-[state=active]:bg-white data-[state=active]:shadow-sm">
+            <History className="size-4" />
+            Histórico
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="pending">
       <Card className="rounded-2xl border-slate-200/70 shadow-sm overflow-hidden border-amber-200/40 bg-amber-50/10">
         <CardHeader className="border-b border-amber-100/80 pb-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -183,10 +211,10 @@ export function LeaveRequestsPage() {
             </TableHeader>
             <TableBody>
               {pendingLoading &&
-                Array.from({ length: 2 }).map((_, i) => (
-                  <TableRow key={i} className="border-slate-50">
-                    {Array.from({ length: 6 }).map((_, j) => (
-                      <TableCell key={j}>
+                ["ps-1", "ps-2"].map((rowKey) => (
+                  <TableRow key={rowKey} className="border-slate-50">
+                    {["c1", "c2", "c3", "c4", "c5", "c6"].map((cellKey) => (
+                      <TableCell key={`${rowKey}-${cellKey}`}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                     ))}
@@ -293,6 +321,91 @@ export function LeaveRequestsPage() {
           </Table>
         </div>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <Card className="rounded-2xl border-slate-200/70 shadow-sm overflow-hidden">
+            <CardHeader className="border-b border-slate-100 pb-4">
+              <div className="flex items-start gap-2">
+                <History className="size-5 text-slate-500 shrink-0 mt-0.5" />
+                <div>
+                  <CardTitle className="text-sm font-semibold text-slate-800">
+                    Histórico de decisões
+                  </CardTitle>
+                  <CardDescription className="text-xs mt-1">
+                    Últimos 100 pedidos aprovados ou rejeitados.
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent border-slate-100">
+                    <TableHead className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Colaborador</TableHead>
+                    <TableHead className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Período</TableHead>
+                    <TableHead className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Tipo</TableHead>
+                    <TableHead className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Estado</TableHead>
+                    <TableHead className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Pedido em</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {decidedLoading &&
+                    ["ds-1", "ds-2", "ds-3"].map((rowKey) => (
+                      <TableRow key={rowKey} className="border-slate-50">
+                        {["c1", "c2", "c3", "c4", "c5"].map((cellKey) => (
+                          <TableCell key={`${rowKey}-${cellKey}`}><Skeleton className="h-4 w-full" /></TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  {!decidedLoading && !(decided?.length ?? 0) && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="py-12 text-center text-sm text-slate-500">
+                        Nenhum pedido decidido ainda.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {decided?.map((row) => {
+                    const cfg = typeConfig[row.type] ?? typeConfig.OTHER;
+                    return (
+                      <TableRow key={row.id} className="border-slate-50 hover:bg-slate-50/80">
+                        <TableCell className="font-medium text-slate-800 text-sm">
+                          <span className="block">{row.user_name}</span>
+                          <span className="text-xs text-slate-400 font-normal truncate max-w-[14rem] block">{row.user_email}</span>
+                        </TableCell>
+                        <TableCell className="text-slate-600 text-sm whitespace-nowrap">
+                          {fmtRange(row.starts_on, row.ends_on)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={cn("text-xs font-medium", cfg.className)}>
+                            {cfg.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              "text-xs font-medium",
+                              row.status === "APPROVED"
+                                ? "bg-teal-50 text-teal-700 border-teal-200"
+                                : "bg-red-50 text-red-600 border-red-200",
+                            )}
+                          >
+                            {row.status === "APPROVED" ? "Aprovado" : "Rejeitado"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-slate-500 text-xs tabular-nums whitespace-nowrap">
+                          {format(new Date(row.created_at), "dd/MM/yyyy HH:mm", { locale: pt })}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

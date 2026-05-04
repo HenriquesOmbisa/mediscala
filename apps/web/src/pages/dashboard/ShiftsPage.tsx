@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   addDays,
@@ -21,6 +21,7 @@ import { pt } from "date-fns/locale";
 import { api } from "../../lib/api";
 import {
   CalendarDays,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
@@ -74,6 +75,7 @@ import {
   type ShiftPeriod,
 } from "@/lib/shift-calendar";
 import { departmentTriggerLabel } from "@/lib/department-label";
+import { useAuthStore } from "@/store/auth.store";
 
 type ShiftRow = ShiftGridRow;
 
@@ -138,13 +140,13 @@ function CandidateCard({
     <button
       type="button"
       onClick={onToggle}
-      className={`w-full text-left p-4 rounded-2xl border transition-all shadow-sm ${
+      className={`w-full text-left p-3.5 rounded-2xl border transition-all shadow-sm ${
         selected
-          ? "border-slate-400/80 bg-slate-50 ring-2 ring-slate-200/90"
+          ? "border-teal-300 bg-teal-50/70 ring-2 ring-teal-100"
           : "border-slate-200/70 bg-card hover:border-slate-300"
       }`}
     >
-      <div className="flex items-start justify-between gap-3 mb-3">
+      <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-slate-900 truncate">
             {candidate.name}
@@ -155,13 +157,21 @@ function CandidateCard({
             </p>
           )}
         </div>
-        <span
-          className={`text-[11px] font-medium border px-2.5 py-1 rounded-full shrink-0 ${statusStyles.badge}`}
-        >
-          {statusStyles.label}
-        </span>
+        <div className="flex items-center gap-2">
+          {selected && (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-teal-700 bg-teal-100 border border-teal-200 px-2 py-1 rounded-full">
+              <CheckCircle2 className="size-3.5" />
+              Selecionado
+            </span>
+          )}
+          <span
+            className={`text-[11px] font-medium border px-2.5 py-1 rounded-full shrink-0 ${statusStyles.badge}`}
+          >
+            {statusStyles.label}
+          </span>
+        </div>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         <div className="flex justify-between text-[11px] text-muted-foreground">
           <span>Horas esta semana</span>
           <span>
@@ -176,9 +186,9 @@ function CandidateCard({
         </div>
       </div>
       {candidate.reasons && candidate.reasons.length > 0 && (
-        <ul className="mt-3 space-y-1.5 text-[11px] text-slate-600 border-t border-slate-100 pt-3">
-          {candidate.reasons.map((line, ri) => (
-            <li key={ri} className="flex gap-2">
+        <ul className="mt-2 space-y-1 text-[11px] text-slate-600 border-t border-slate-100 pt-2">
+          {candidate.reasons.slice(0, 2).map((line) => (
+            <li key={`${candidate.id}-${line}`} className="flex gap-2">
               <span className="text-teal-600 shrink-0">·</span>
               <span className="leading-snug">{line}</span>
             </li>
@@ -207,6 +217,9 @@ const DEFAULT_FORM = {
 export function ShiftsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const canManage =
+    user?.role === "HOSPITAL_ADMIN" || user?.role === "MANAGER";
   const departmentFilter = useRouterState({
     select: (st) =>
       (st.location.search as { departmentId?: string }).departmentId,
@@ -227,6 +240,7 @@ export function ShiftsPage() {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(
     new Set(),
   );
+  const [candidateSearch, setCandidateSearch] = useState("");
 
   // ── Date range for shifts
   const range = useMemo(() => {
@@ -300,12 +314,16 @@ export function ShiftsPage() {
     staleTime: 0,
   });
 
-  // Auto-select top N when candidates load
-  useEffect(() => {
-    if (!candidates) return;
-    const top = candidates.slice(0, form.requiredCount).map((c) => c.id);
-    setSelectedUserIds(new Set(top));
-  }, [candidates, form.requiredCount]);
+  const filteredCandidates = useMemo(() => {
+    const q = candidateSearch.trim().toLowerCase();
+    if (!candidates) return [] as Candidate[];
+    if (!q) return candidates;
+    return candidates.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.specialty ?? "").toLowerCase().includes(q),
+    );
+  }, [candidates, candidateSearch]);
 
   // ── Create mutation
   const create = useMutation({
@@ -355,6 +373,7 @@ export function ShiftsPage() {
   // ── Dialog helpers
   function openDialog() {
     setForm(DEFAULT_FORM);
+    setCandidateSearch("");
     setSelectedUserIds(new Set());
     setStep(1);
     setShowForm(true);
@@ -363,6 +382,7 @@ export function ShiftsPage() {
   function closeDialog() {
     setShowForm(false);
     setStep(1);
+    setCandidateSearch("");
     setForm(DEFAULT_FORM);
     setSelectedUserIds(new Set());
   }
@@ -392,6 +412,7 @@ export function ShiftsPage() {
   }
 
   function goToStep2() {
+    setCandidateSearch("");
     setSelectedUserIds(new Set());
     setStep(2);
   }
@@ -431,14 +452,16 @@ export function ShiftsPage() {
             inteligente de equipa no segundo passo.
           </p>
         </div>
-        <Button
-          size="lg"
-          className="gap-2.5 rounded-2xl h-11 px-7 text-[15px] bg-[#0B1F3A] hover:bg-[#0a1a33] shadow-sm shrink-0"
-          onClick={openDialog}
-        >
-          <Plus className="size-5" />
-          Criar turno
-        </Button>
+        {canManage && (
+          <Button
+            size="lg"
+            className="gap-2.5 rounded-2xl h-11 px-7 text-[15px] bg-[#0B1F3A] hover:bg-[#0a1a33] shadow-sm shrink-0"
+            onClick={openDialog}
+          >
+            <Plus className="size-5" />
+            Criar turno
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-slate-200/55 bg-white/90 px-5 py-4 shadow-sm">
@@ -704,16 +727,11 @@ export function ShiftsPage() {
                     </p>
                   )}
                   {pickedShifts.map((s) => (
-                    <Card
+                    <button
                       key={s.id}
-                      role="button"
-                      tabIndex={0}
+                      type="button"
                       onClick={() => setSelectedShiftId(s.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ")
-                          setSelectedShiftId(s.id);
-                      }}
-                      className="rounded-xl border-teal-100 bg-card shadow-none cursor-pointer hover:bg-slate-50/80 transition-colors"
+                      className="w-full text-left rounded-xl border border-teal-100 bg-card shadow-none cursor-pointer hover:bg-slate-50/80 transition-colors"
                     >
                       <CardContent className="p-4 space-y-2">
                         <div className="flex justify-between gap-2 flex-wrap">
@@ -740,7 +758,7 @@ export function ShiftsPage() {
                           )}
                         </div>
                       </CardContent>
-                    </Card>
+                    </button>
                   ))}
                 </div>
               </ScrollArea>
@@ -823,7 +841,7 @@ export function ShiftsPage() {
 
       {/* ─── CREATE DIALOG ────────────────────────────────────────────────── */}
       <Dialog open={showForm} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent className="sm:max-w-2xl rounded-3xl border-slate-200/70 shadow-xl">
+        <DialogContent className="w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-hidden rounded-3xl border-slate-200/70 shadow-xl flex flex-col">
           <DialogHeader className="space-y-4">
             <DialogTitle className="text-lg font-semibold">
               {step === 1
@@ -843,6 +861,8 @@ export function ShiftsPage() {
               />
             </div>
           </DialogHeader>
+
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
 
           {/* Step 1 */}
           {step === 1 && (
@@ -961,10 +981,19 @@ export function ShiftsPage() {
           {step === 2 && (
             <div className="space-y-3 py-2">
               <p className="text-sm text-muted-foreground">
-                Colaboradores disponíveis ordenados por carga horária. Os{" "}
-                {form.requiredCount} melhores estão pré-selecionados — ajuste
-                conforme necessário.
+                Colaboradores do departamento com nível de disponibilidade
+                (verde/amarelo/vermelho), ordenados por prioridade. Seleciona
+                manualmente quem deve entrar na equipa.
               </p>
+
+              <div className="max-w-sm">
+                <Input
+                  value={candidateSearch}
+                  onChange={(e) => setCandidateSearch(e.target.value)}
+                  className="rounded-xl h-10"
+                  placeholder="Pesquisar colaborador ou especialidade"
+                />
+              </div>
 
               {suggestLoading && (
                 <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
@@ -973,20 +1002,20 @@ export function ShiftsPage() {
                 </div>
               )}
 
-              {!suggestLoading && candidates?.length === 0 && (
+              {!suggestLoading && filteredCandidates.length === 0 && (
                 <div className="text-center py-8 text-sm text-muted-foreground border rounded-xl bg-muted/20">
-                  Nenhum colaborador disponível para este turno.
+                  Nenhum colaborador encontrado para este filtro.
                   <br />
                   <span className="text-xs mt-1 block">
-                    Verifique a disponibilidade semanal dos colaboradores.
+                    Tenta outro termo de pesquisa.
                   </span>
                 </div>
               )}
 
-              {!suggestLoading && candidates && candidates.length > 0 && (
-                <ScrollArea className="h-[22rem] pr-2 rounded-2xl border border-slate-200/50 bg-slate-50/30">
+              {!suggestLoading && filteredCandidates.length > 0 && (
+                <ScrollArea className="h-[46vh] max-h-[24rem] pr-2 rounded-2xl border border-slate-200/50 bg-slate-50/30">
                   <div className="space-y-2">
-                    {candidates.map((c) => (
+                    {filteredCandidates.map((c) => (
                       <CandidateCard
                         key={c.id}
                         candidate={c}
@@ -1010,6 +1039,7 @@ export function ShiftsPage() {
               </div>
             </div>
           )}
+          </div>
 
           <DialogFooter className="gap-3 pt-4 border-t border-slate-100 mt-2">
             {step === 1 ? (

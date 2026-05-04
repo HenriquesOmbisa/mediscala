@@ -15,6 +15,10 @@ import { CoveragePage } from "./pages/dashboard/CoveragePage";
 import { AbsencesPage } from "./pages/dashboard/AbsencesPage";
 import { LeaveRequestsPage } from "./pages/dashboard/LeaveRequestsPage";
 import { ProfilePage } from "./pages/dashboard/ProfilePage";
+import { InstitutionPage } from "./pages/dashboard/InstitutionPage";
+import { BillingPlanPage } from "./pages/dashboard/BillingPlanPage";
+import { BillingPaymentsPage } from "./pages/dashboard/BillingPaymentsPage";
+import { BillingUpgradePage } from "./pages/dashboard/BillingUpgradePage";
 import { useAuthStore } from "./store/auth.store";
 
 const rootRoute = createRootRoute({ component: Root });
@@ -33,7 +37,9 @@ const loginRoute = createRoute({
   component: LoginPage,
   beforeLoad: () => {
     const { user } = useAuthStore.getState();
-    if (user) throw redirect({ to: "/dashboard" });
+    if (user && ["HOSPITAL_ADMIN", "MANAGER"].includes(user.role)) {
+      throw redirect({ to: "/dashboard" });
+    }
   },
 });
 
@@ -44,7 +50,9 @@ const dashboardRoute = createRoute({
   beforeLoad: () => {
     const { user } = useAuthStore.getState();
     if (!user) throw redirect({ to: "/login" });
-    if (user.role === "COLLABORATOR") throw redirect({ to: "/login" });
+    if (!["HOSPITAL_ADMIN", "MANAGER"].includes(user.role)) {
+      throw redirect({ to: "/login" });
+    }
   },
 });
 
@@ -58,6 +66,18 @@ const profileRoute = createRoute({
   getParentRoute: () => dashboardRoute,
   path: "/profile",
   component: ProfilePage,
+});
+
+const institutionRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: "/institution",
+  component: InstitutionPage,
+  beforeLoad: () => {
+    const { user } = useAuthStore.getState();
+    if (!user || !["HOSPITAL_ADMIN", "MANAGER"].includes(user.role)) {
+      throw redirect({ to: "/dashboard" });
+    }
+  },
 });
 
 const usersRoute = createRoute({
@@ -102,18 +122,40 @@ const absencesRoute = createRoute({
   component: AbsencesPage,
 });
 
+const billingPlanRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: "/billing/plan",
+  component: BillingPlanPage,
+});
+
+const billingPaymentsRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: "/billing/payments",
+  component: BillingPaymentsPage,
+});
+
+const billingUpgradeRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: "/billing/upgrade",
+  component: BillingUpgradePage,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
   dashboardRoute.addChildren([
     dashboardIndexRoute,
     profileRoute,
+    institutionRoute,
     usersRoute,
     departmentsRoute,
     shiftsRoute,
     coverageRoute,
     leaveRequestsRoute,
     absencesRoute,
+    billingPlanRoute,
+    billingPaymentsRoute,
+    billingUpgradeRoute,
   ]),
 ]);
 

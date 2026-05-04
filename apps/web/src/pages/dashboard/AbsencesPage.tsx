@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { api } from "../../lib/api";
 import {
@@ -52,6 +53,8 @@ const typeConfig: Record<
 };
 
 export function AbsencesPage() {
+  const [filterType, setFilterType] = useState<string>("ALL");
+
   const { data, isLoading } = useQuery({
     queryKey: ["absences"],
     queryFn: async () => (await api.get("/absences")).data.data as Record<
@@ -59,6 +62,11 @@ export function AbsencesPage() {
       unknown
     >[],
   });
+
+  const displayed =
+    filterType === "ALL"
+      ? data
+      : data?.filter((a) => a.type === filterType);
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -111,6 +119,41 @@ export function AbsencesPage() {
         </div>
       )}
 
+      {/* ── Type filter ── */}
+      {!isLoading && data && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setFilterType("ALL")}
+            className={`rounded-xl px-3 py-1.5 text-xs font-semibold border transition-colors ${
+              filterType === "ALL"
+                ? "bg-slate-800 text-white border-slate-800"
+                : "border-slate-200 text-slate-500 hover:bg-slate-50"
+            }`}
+          >
+            Todos ({data.length})
+          </button>
+          {Object.entries(typeConfig).map(([key, { label, className }]) => {
+            const count = data.filter((a) => a.type === key).length;
+            if (count === 0) return null;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilterType(filterType === key ? "ALL" : key)}
+                className={`rounded-xl px-3 py-1.5 text-xs font-semibold border transition-colors ${
+                  filterType === key
+                    ? `ring-2 ring-offset-1 ring-slate-400 ${className}`
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                {label} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── Table ── */}
       <Card className="rounded-2xl border-slate-200/70 shadow-sm overflow-hidden">
         <CardHeader className="border-b border-slate-100 pb-4">
@@ -118,7 +161,7 @@ export function AbsencesPage() {
             Todas as ausências
           </CardTitle>
           <CardDescription className="text-xs">
-            {isLoading ? "A carregar..." : `${data?.length ?? 0} registos`}
+            {isLoading ? "A carregar..." : `${displayed?.length ?? 0} registos${filterType !== "ALL" ? ` · filtrado por ${typeConfig[filterType]?.label}` : ""}`}
           </CardDescription>
         </CardHeader>
         <div className="overflow-x-auto">
@@ -147,28 +190,32 @@ export function AbsencesPage() {
             </TableHeader>
             <TableBody>
               {isLoading &&
-                Array.from({ length: 5 }).map((_, i) => (
-                  <TableRow key={i} className="border-slate-50">
-                    {Array.from({ length: 6 }).map((_, j) => (
-                      <TableCell key={j}>
+                ["sk-a", "sk-b", "sk-c", "sk-d", "sk-e"].map((k) => (
+                  <TableRow key={k} className="border-slate-50">
+                    {["c1", "c2", "c3", "c4", "c5", "c6"].map((ck) => (
+                      <TableCell key={ck}>
                         <Skeleton className="h-4 w-full" />
                       </TableCell>
                     ))}
                   </TableRow>
                 ))}
 
-              {!isLoading && !data?.length && (
+              {!isLoading && !displayed?.length && (
                 <TableRow>
                   <TableCell colSpan={6} className="py-16 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-400">
                       <FileX size={28} className="opacity-30" />
-                      <span className="text-sm">Sem faltas registadas</span>
+                      <span className="text-sm">
+                        {filterType === "ALL"
+                          ? "Sem faltas registadas"
+                          : `Sem faltas do tipo "${typeConfig[filterType]?.label}"`}
+                      </span>
                     </div>
                   </TableCell>
                 </TableRow>
               )}
 
-              {data?.map((absence) => {
+              {displayed?.map((absence) => {
                 const cfg = typeConfig[String(absence.type)] ?? typeConfig.OTHER;
                 return (
                   <TableRow

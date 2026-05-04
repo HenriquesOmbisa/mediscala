@@ -63,6 +63,7 @@ function StatCard({
   description,
   variant,
   loading,
+  href,
 }: {
   label: string;
   value: number | string;
@@ -70,6 +71,7 @@ function StatCard({
   description?: string;
   variant: "default" | "teal" | "amber" | "red";
   loading?: boolean;
+  href?: string;
 }) {
   const iconClass = {
     default: "bg-[#0B1F3A]/95 text-white",
@@ -78,8 +80,13 @@ function StatCard({
     red: "bg-rose-500/85 text-white",
   }[variant];
 
-  return (
-    <Card className="rounded-3xl border-slate-200/55 shadow-sm hover:shadow-md/80 transition-shadow bg-white/90 backdrop-blur-sm">
+  const inner = (
+    <Card
+      className={cn(
+        "rounded-3xl border-slate-200/55 shadow-sm hover:shadow-md/80 transition-shadow bg-white/90 backdrop-blur-sm",
+        href && "cursor-pointer hover:border-slate-300/70",
+      )}
+    >
       <CardContent className="p-7">
         <div className="flex items-start justify-between mb-5">
           <div
@@ -90,7 +97,10 @@ function StatCard({
           >
             <Icon size={20} />
           </div>
-          <ArrowUpRight size={15} className="text-slate-300 mt-1" />
+          <ArrowUpRight
+            size={15}
+            className={cn("mt-1", href ? "text-slate-400" : "text-slate-300")}
+          />
         </div>
         {loading ? (
           <>
@@ -113,6 +123,15 @@ function StatCard({
       </CardContent>
     </Card>
   );
+
+  if (href) {
+    return (
+      <Link to={href} className="block no-underline">
+        {inner}
+      </Link>
+    );
+  }
+  return inner;
 }
 
 export function DashboardHome() {
@@ -188,6 +207,15 @@ export function DashboardHome() {
     queryFn: async () => {
       const res = await api.get("/coverage");
       return res.data.data as { status: string }[];
+    },
+    enabled: ["HOSPITAL_ADMIN", "MANAGER"].includes(user?.role ?? ""),
+  });
+
+  const { data: absencesData, isLoading: absencesLoading } = useQuery({
+    queryKey: ["absences", "dashboard"],
+    queryFn: async () => {
+      const res = await api.get("/absences");
+      return res.data.data as { id: string }[];
     },
     enabled: ["HOSPITAL_ADMIN", "MANAGER"].includes(user?.role ?? ""),
   });
@@ -284,6 +312,7 @@ export function DashboardHome() {
           icon={CalendarIcon}
           variant="default"
           loading={shiftsLoading}
+          href="/dashboard/shifts"
         />
         <StatCard
           label="Colaboradores"
@@ -291,6 +320,7 @@ export function DashboardHome() {
           icon={Users}
           variant="teal"
           loading={usersLoading}
+          href="/dashboard/users"
         />
         <StatCard
           label="Coberturas abertas"
@@ -298,12 +328,15 @@ export function DashboardHome() {
           icon={Shield}
           variant={openCoverage > 0 ? "amber" : "teal"}
           loading={coverageLoading}
+          href="/dashboard/coverage"
         />
         <StatCard
           label="Faltas registadas"
-          value="—"
+          value={absencesData?.length ?? "—"}
           icon={AlertCircle}
           variant="red"
+          loading={absencesLoading}
+          href="/dashboard/absences"
         />
       </div>
 
@@ -545,10 +578,10 @@ export function DashboardHome() {
               </TableHeader>
               <TableBody>
                 {shifts7dLoading &&
-                  Array.from({ length: 3 }).map((_, i) => (
-                    <TableRow key={i} className="border-slate-50">
-                      {Array.from({ length: 5 }).map((_, j) => (
-                        <TableCell key={j} className="py-5">
+                  ["strip-s1", "strip-s2", "strip-s3"].map((rowKey) => (
+                    <TableRow key={rowKey} className="border-slate-50">
+                      {["c1", "c2", "c3", "c4", "c5"].map((cellKey) => (
+                        <TableCell key={`${rowKey}-${cellKey}`} className="py-5">
                           <Skeleton className="h-4 w-full rounded-md" />
                         </TableCell>
                       ))}

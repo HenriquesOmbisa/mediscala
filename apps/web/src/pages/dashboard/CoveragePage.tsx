@@ -1,11 +1,24 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../lib/api";
+import { useAuthStore } from "@/store/auth.store";
 import { Shield, Clock, CheckCircle2, XCircle, Ban, Users, CalendarClock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+
+type CoverageRow = {
+  id: string;
+  status: "OPEN" | "FILLED" | "EXPIRED" | "CANCELLED";
+  shift_name: string;
+  absent_user_name: string;
+  start_datetime: string;
+  end_datetime: string;
+  pending_candidates: number;
+  accepted_candidates: number;
+};
 
 const statusConfig: Record<
   string,
@@ -34,13 +47,22 @@ const statusConfig: Record<
 };
 
 export function CoveragePage() {
+  const { user } = useAuthStore();
+  const queryClient = useQueryClient();
+  const canManage = ["HOSPITAL_ADMIN", "MANAGER"].includes(user?.role ?? "");
+
   const { data, isLoading } = useQuery({
     queryKey: ["coverage"],
-    queryFn: async () => (await api.get("/coverage")).data.data as any[],
+    queryFn: async () => (await api.get("/coverage")).data.data as CoverageRow[],
     refetchInterval: 15_000,
   });
 
-  const openCount = data?.filter((r: any) => r.status === "OPEN").length ?? 0;
+  const cancelCoverage = useMutation({
+    mutationFn: async (id: string) => api.patch(`/coverage/${id}/cancel`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["coverage"] }),
+  });
+
+  const openCount = data?.filter((r) => r.status === "OPEN").length ?? 0;
 
   return (
     <div className="p-8 max-w-5xl mx-auto space-y-6">
@@ -65,8 +87,8 @@ export function CoveragePage() {
       {/* ── Cards ── */}
       <div className="space-y-3">
         {isLoading &&
-          Array.from({ length: 3 }).map((_, i) => (
-            <Card key={i} className="rounded-2xl border-slate-200/70 shadow-sm">
+          ["sk-cov-1", "sk-cov-2", "sk-cov-3"].map((k) => (
+            <Card key={k} className="rounded-2xl border-slate-200/70 shadow-sm">
               <CardContent className="p-6 space-y-3">
                 <div className="flex items-center gap-3">
                   <Skeleton className="h-6 w-20 rounded-full" />
@@ -92,9 +114,11 @@ export function CoveragePage() {
           </Card>
         )}
 
-        {data?.map((req: any) => {
+        {data?.map((req) => {
           const cfg = statusConfig[req.status] ?? statusConfig.OPEN;
           const StatusIcon = cfg.icon;
+          const isCancelling =
+            cancelCoverage.isPending && cancelCoverage.variables === req.id;
           return (
             <Card
               key={req.id}
@@ -145,25 +169,42 @@ export function CoveragePage() {
                     </div>
                   </div>
 
-                  {/* Candidate stats */}
-                  <div className="flex gap-4 shrink-0 text-right">
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-1">
-                        Pendentes
-                      </span>
-                      <span className="text-lg font-bold text-slate-700 tabular-nums">
-                        {req.pending_candidates}
-                      </span>
+                  <div className="flex flex-col items-end gap-3 shrink-0">
+                    {/* Candidate stats */}
+                    <div className="flex gap-4">
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-1">
+                          Pendentes
+                        </span>
+                        <span className="text-lg font-bold text-slate-700 tabular-nums">
+                          {req.pending_candidates}
+                        </span>
+                      </div>
+                      <Separator orientation="vertical" className="h-10 self-center" />
+                      <div className="flex flex-col items-end">
+                        <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-1">
+                          Aceites
+                        </span>
+                        <span className="text-lg font-bold text-teal-600 tabular-nums">
+                          {req.accepted_candidates}
+                        </span>
+                      </div>
                     </div>
-                    <Separator orientation="vertical" className="h-10 self-center" />
-                    <div className="flex flex-col items-end">
-                      <span className="text-[10px] text-slate-400 uppercase tracking-wide font-medium mb-1">
-                        Aceites
-                      </span>
-                      <span className="text-lg font-bold text-teal-600 tabular-nums">
-                        {req.accepted_candidates}
-                      </span>
-                    </div>
+
+                    {/* Cancel action */}
+                    {canManage && req.status === "OPEN" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isCancelling}
+                        className="rounded-xl border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 text-xs gap-1.5"
+                        onClick={() => cancelCoverage.mutate(req.id)}
+                      >
+                        <Ban size={13} />
+                        {isCancelling ? "A cancelar…" : "Cancelar pedido"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>
