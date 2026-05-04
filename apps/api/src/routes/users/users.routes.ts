@@ -38,6 +38,9 @@ async function removeAvatarFile(avatarUrl: string | null) {
 }
 
 export const userRoutes: FastifyPluginAsync = async (fastify) => {
+  const contractHoursSelect = "CAST(u.contract_hours_week AS INTEGER) AS contract_hours_week";
+  const contractHoursReturn = "CAST(contract_hours_week AS INTEGER) AS contract_hours_week";
+
   // ─── Me (must be registered before /:id) ───────────────────────────────────
 
   fastify.get("/me", async (request, reply) => {
@@ -45,7 +48,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await getTenantClient(request.tenantSlug);
     try {
       const { rows } = await client.query(
-        `SELECT u.id, u.name, u.email, u.role, u.specialty, u.contract_hours_week,
+        `SELECT u.id, u.name, u.email, u.role, u.specialty, ${contractHoursSelect},
                 u.department_id, u.active, u.avatar_url, u.created_at, u.updated_at,
                 d.name AS department_name
          FROM users u
@@ -82,17 +85,72 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     if (setClauses.length === 0) {
       return reply.status(400).send({ error: "No fields to update" });
     }
-    setClauses.push(`updated_at = NOW()`);
+    setClauses.push("updated_at = NOW()");
     values.push(request.user.sub);
     const client = await getTenantClient(request.tenantSlug);
     try {
       const { rows } = await client.query(
         `UPDATE users SET ${setClauses.join(", ")} WHERE id = $${idx}
-         RETURNING id, name, email, role, specialty, contract_hours_week, department_id, active, avatar_url, updated_at`,
+         RETURNING id, name, email, role, specialty, ${contractHoursReturn}, department_id, active, avatar_url, updated_at`,
         values,
       );
       if (!rows[0]) return reply.status(404).send({ error: "Not Found" });
       return reply.send({ data: rows[0] });
+    } finally {
+      client.release();
+    }
+  });
+
+  // PATCH /users/me/password — change own password
+  fastify.patch("/me/password", async (request, reply) => {
+    const { currentPassword, newPassword } = request.body as {
+      currentPassword?: string;
+      newPassword?: string;
+    };
+
+    if (
+      !currentPassword ||
+      !newPassword ||
+      typeof currentPassword !== "string" ||
+      typeof newPassword !== "string"
+    ) {
+      return reply.status(400).send({
+        error: "Bad Request",
+        message: "currentPassword and newPassword are required",
+      });
+    }
+
+    if (newPassword.length < 8) {
+      return reply.status(400).send({
+        error: "Bad Request",
+        message: "newPassword must be at least 8 characters",
+      });
+    }
+
+    const userId = request.user.sub;
+    const client = await getTenantClient(request.tenantSlug);
+    try {
+      const { rows } = await client.query<{ password_hash: string }>(
+        "SELECT password_hash FROM users WHERE id = $1",
+        [userId],
+      );
+      if (!rows[0]) return reply.status(404).send({ error: "Not Found" });
+
+      const valid = await argon2.verify(rows[0].password_hash, currentPassword);
+      if (!valid) {
+        return reply.status(401).send({
+          error: "Unauthorized",
+          message: "A palavra-passe atual está incorreta",
+        });
+      }
+
+      const newHash = await argon2.hash(newPassword);
+      await client.query(
+        "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2",
+        [newHash, userId],
+      );
+
+      return reply.send({ data: { message: "Password updated" } });
     } finally {
       client.release();
     }
@@ -118,7 +176,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     let previousAvatar: string | null = null;
     try {
       const { rows: cur } = await client.query<{ avatar_url: string | null }>(
-        `SELECT avatar_url FROM users WHERE id = $1`,
+        "SELECT avatar_url FROM users WHERE id = $1",
         [userId],
       );
       previousAvatar = cur[0]?.avatar_url ?? null;
@@ -131,7 +189,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
 
       const { rows } = await client.query(
         `UPDATE users SET avatar_url = $1, updated_at = NOW() WHERE id = $2
-         RETURNING id, name, email, role, specialty, contract_hours_week, department_id, active, avatar_url`,
+         RETURNING id, name, email, role, specialty, ${contractHoursReturn}, department_id, active, avatar_url`,
         [publicPath, userId],
       );
       if (!rows[0]) {
@@ -170,24 +228,66 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     },
   );
 
+  // GET /users/decided-leave-requests — histórico de aprovados/rejeitados
+  fastify.get(
+    "/decided-leave-requests",
+    {
+      preHandler: fastify.requireRole(["HOSPITAL_ADMIN", "MANAGER"]),
+    },
+    async (request, reply) => {
+      const client = await getTenantClient(request.tenantSlug);
+      try {
+        const { rows } = await client.query(
+          `SELECT lb.id, lb.user_id, lb.starts_on, lb.ends_on, lb.type,
+                  lb.status, lb.reason, lb.created_at,
+                  u.name AS user_name, u.email AS user_email
+           FROM user_leave_blocks lb
+           JOIN users u ON u.id = lb.user_id
+           WHERE lb.status IN ('APPROVED', 'REJECTED')
+           ORDER BY lb.created_at DESC
+           LIMIT 100`,
+        );
+        return reply.send({ data: rows });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
   // ─── List ─────────────────────────────────────────────────────────────────
 
   fastify.get("/", async (request, reply) => {
     const q = PaginationSchema.parse(request.query);
+    const { search } = request.query as { search?: string };
     const offset = (q.page - 1) * q.pageSize;
     const client = await getTenantClient(request.tenantSlug);
     try {
+      const searchClause = search?.trim()
+        ? 'WHERE (u.name ILIKE $3 OR u.email ILIKE $3)'
+        : "";
+      const searchParam = search?.trim() ? `%${search.trim()}%` : null;
+      const params: unknown[] = [q.pageSize, offset];
+      if (searchParam) params.push(searchParam);
+
       const { rows } = await client.query(
-        `SELECT u.id, u.name, u.email, u.role, u.specialty, u.contract_hours_week,
+        `SELECT u.id, u.name, u.email, u.role, u.specialty, ${contractHoursSelect},
                 u.department_id, u.active, u.avatar_url, u.created_at,
                 d.name AS department_name
          FROM users u
          LEFT JOIN departments d ON d.id = u.department_id
+         ${searchClause}
          ORDER BY u.created_at DESC LIMIT $1 OFFSET $2`,
-        [q.pageSize, offset],
+        params,
       );
+      const countParams: unknown[] = [];
+      const countClause = search?.trim()
+        ? 'WHERE (name ILIKE $1 OR email ILIKE $1)'
+        : "";
+      if (searchParam) countParams.push(searchParam);
+
       const { rows: countRows } = await client.query(
-        `SELECT COUNT(*) FROM users`,
+        `SELECT COUNT(*) FROM users ${countClause}`,
+        countParams,
       );
       const total = Number(countRows[0].count);
       return reply.send({
@@ -227,7 +327,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         sql += ` AND s.start_datetime < $${idx++}`;
         params.push(to);
       }
-      sql += ` ORDER BY s.start_datetime`;
+      sql += " ORDER BY s.start_datetime";
       const { rows } = await client.query(sql, params);
       return reply.send({ data: rows });
     } finally {
@@ -388,7 +488,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await getTenantClient(request.tenantSlug);
     try {
       const { rowCount } = await client.query(
-        `DELETE FROM user_leave_blocks WHERE id = $1 AND user_id = $2`,
+        "DELETE FROM user_leave_blocks WHERE id = $1 AND user_id = $2",
         [blockId, id],
       );
       if (!rowCount)
@@ -405,7 +505,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await getTenantClient(request.tenantSlug);
     try {
       const { rows } = await client.query(
-        `SELECT u.id, u.name, u.email, u.role, u.specialty, u.contract_hours_week,
+        `SELECT u.id, u.name, u.email, u.role, u.specialty, ${contractHoursSelect},
                 u.department_id, u.active, u.avatar_url, u.created_at,
                 d.name AS department_name
          FROM users u
@@ -447,7 +547,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const { rows } = await client.query(
           `INSERT INTO users (name, email, password_hash, role, specialty, contract_hours_week, department_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, role, specialty, contract_hours_week, department_id, active, avatar_url, created_at`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, name, email, role, specialty, ${contractHoursReturn}, department_id, active, avatar_url, created_at`,
           [
             name,
             email,
@@ -462,7 +562,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
         const masterClient = await masterPool.connect();
         try {
           await masterClient.query(
-            `INSERT INTO user_lookups (email, user_id, tenant_slug) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET user_id = $2, tenant_slug = $3`,
+            "INSERT INTO user_lookups (email, user_id, tenant_slug) VALUES ($1, $2, $3) ON CONFLICT (email) DO UPDATE SET user_id = $2, tenant_slug = $3",
             [email, rows[0].id, request.tenantSlug],
           );
         } finally {
@@ -479,7 +579,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.patch(
     "/:id",
     {
-      preHandler: fastify.requireRole(["HOSPITAL_ADMIN", "MANAGER"]),
+      preHandler: fastify.requireRole(["HOSPITAL_ADMIN"]),
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
@@ -523,17 +623,38 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       if (setClauses.length === 0)
         return reply.status(400).send({ error: "No fields to update" });
 
-      setClauses.push(`updated_at = NOW()`);
+      setClauses.push("updated_at = NOW()");
       values.push(id);
 
       const client = await getTenantClient(request.tenantSlug);
       try {
         const { rows } = await client.query(
-          `UPDATE users SET ${setClauses.join(", ")} WHERE id = $${idx} RETURNING id, name, email, role, specialty, contract_hours_week, department_id, active, avatar_url`,
+          `UPDATE users SET ${setClauses.join(", ")} WHERE id = $${idx} RETURNING id, name, email, role, specialty, ${contractHoursReturn}, department_id, active, avatar_url`,
           values,
         );
         if (!rows[0]) return reply.status(404).send({ error: "Not Found" });
         return reply.send({ data: rows[0] });
+      } finally {
+        client.release();
+      }
+    },
+  );
+
+  // PATCH /users/:id/reactivate
+  fastify.patch(
+    "/:id/reactivate",
+    {
+      preHandler: fastify.requireRole(["HOSPITAL_ADMIN"]),
+    },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const client = await getTenantClient(request.tenantSlug);
+      try {
+        await client.query(
+          "UPDATE users SET active = TRUE, updated_at = NOW() WHERE id = $1",
+          [id],
+        );
+        return reply.send({ data: { message: "User reactivated" } });
       } finally {
         client.release();
       }
@@ -551,7 +672,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
       const client = await getTenantClient(request.tenantSlug);
       try {
         await client.query(
-          `UPDATE users SET active = FALSE, updated_at = NOW() WHERE id = $1`,
+          "UPDATE users SET active = FALSE, updated_at = NOW() WHERE id = $1",
           [id],
         );
         return reply.send({ data: { message: "User deactivated" } });
@@ -570,7 +691,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const client = await getTenantClient(request.tenantSlug);
     try {
-      await client.query(`UPDATE users SET push_token = $1 WHERE id = $2`, [
+      await client.query("UPDATE users SET push_token = $1 WHERE id = $2", [
         pushToken,
         id,
       ]);
@@ -614,7 +735,7 @@ export const userRoutes: FastifyPluginAsync = async (fastify) => {
     const client = await getTenantClient(request.tenantSlug);
     try {
       await client.query("BEGIN");
-      await client.query(`DELETE FROM availability WHERE user_id = $1`, [id]);
+      await client.query("DELETE FROM availability WHERE user_id = $1", [id]);
       for (const slot of slots) {
         const period = availabilityPeriodFromSlot(
           slot.startTime,

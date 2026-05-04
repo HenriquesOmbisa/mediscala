@@ -25,6 +25,7 @@ import { shiftRoutes } from "./routes/shifts/shifts.routes.js";
 import { absenceRoutes } from "./routes/absences/absences.routes.js";
 import { coverageRoutes } from "./routes/coverage/coverage.routes.js";
 import { notificationRoutes } from "./routes/notifications/notifications.routes.js";
+import { billingRoutes } from "./routes/billing/billing.routes.js";
 import { adminRoutes } from "./routes/admin/index.js";
 import {
   createCoverageQueue,
@@ -92,6 +93,7 @@ async function bootstrap() {
   fastify.register(absenceRoutes, { prefix: "/api/v1/absences" });
   fastify.register(coverageRoutes, { prefix: "/api/v1/coverage" });
   fastify.register(notificationRoutes, { prefix: "/api/v1/notifications" });
+  fastify.register(billingRoutes, { prefix: "/api/v1/billing" });
   fastify.register(adminRoutes, { prefix: "/api/v1/admin" });
 
   // Run master DB migrations and seed default plans

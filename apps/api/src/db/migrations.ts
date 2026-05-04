@@ -25,6 +25,10 @@ export async function runMasterMigrations() {
   const client = await getAdminClient();
   try {
     await client.query(`
+      DO $$ BEGIN
+        CREATE TYPE payment_submission_status AS ENUM ('SUBMITTED', 'APPROVED', 'REJECTED');
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
       CREATE TABLE IF NOT EXISTS plans (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name TEXT NOT NULL,
@@ -45,10 +49,23 @@ export async function runMasterMigrations() {
         status TEXT NOT NULL DEFAULT 'TRIAL',
         db_name TEXT NOT NULL UNIQUE,
         contact_email TEXT,
+        contact_phone TEXT,
+        nif TEXT,
+        address TEXT,
+        area_of_activity TEXT,
+        logo_url TEXT,
+        brand_display_mode TEXT NOT NULL DEFAULT 'LOGO_AND_NAME',
         notes TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS contact_phone TEXT;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS nif TEXT;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS address TEXT;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS area_of_activity TEXT;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS logo_url TEXT;
+      ALTER TABLE tenants ADD COLUMN IF NOT EXISTS brand_display_mode TEXT NOT NULL DEFAULT 'LOGO_AND_NAME';
 
       CREATE TABLE IF NOT EXISTS super_admins (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -87,6 +104,14 @@ export async function runMasterMigrations() {
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS requested_plan_id UUID REFERENCES plans(id);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS submission_status payment_submission_status NOT NULL DEFAULT 'APPROVED';
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS proof_url TEXT;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS submitted_by_user_id UUID;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS reviewed_by_super_admin_id UUID REFERENCES super_admins(id);
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS review_reason TEXT;
+
       CREATE TABLE IF NOT EXISTS user_lookups (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         email TEXT NOT NULL UNIQUE,
@@ -96,6 +121,7 @@ export async function runMasterMigrations() {
       );
 
       CREATE INDEX IF NOT EXISTS user_lookups_tenant_idx ON user_lookups(tenant_slug);
+      CREATE INDEX IF NOT EXISTS payments_tenant_submission_idx ON payments(tenant_id, submission_status);
     `);
     console.log("✅ Master DB migrations complete");
   } finally {
@@ -147,7 +173,7 @@ export async function provisionTenantDatabase(slug: string) {
   try {
     // Check if DB already exists
     const { rows } = await adminClient.query(
-      `SELECT 1 FROM pg_database WHERE datname = $1`,
+      "SELECT 1 FROM pg_database WHERE datname = $1",
       [dbName],
     );
     if (rows.length === 0) {
@@ -268,11 +294,21 @@ export async function provisionTenantDatabase(slug: string) {
 
       CREATE TABLE IF NOT EXISTS coverage_requests (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        absence_id UUID NOT NULL REFERENCES absences(id),
+        absence_id UUID REFERENCES absences(id),
         status coverage_status NOT NULL DEFAULT 'OPEN',
+        type TEXT NOT NULL DEFAULT 'COVERAGE',
+        requested_by UUID REFERENCES users(id),
+        source_assignment_id UUID REFERENCES shift_assignments(id),
+        target_assignment_id UUID REFERENCES shift_assignments(id),
+        swap_status TEXT,
+        manager_decision_at TIMESTAMPTZ,
+        manager_decision_by UUID REFERENCES users(id),
+        manager_decision_reason TEXT,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         expires_at TIMESTAMPTZ
       );
+      CREATE INDEX IF NOT EXISTS coverage_requests_type_status_idx ON coverage_requests(type, status);
+      CREATE INDEX IF NOT EXISTS coverage_requests_swap_status_idx ON coverage_requests(swap_status);
 
       CREATE TABLE IF NOT EXISTS coverage_candidates (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

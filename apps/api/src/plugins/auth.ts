@@ -28,6 +28,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     const publicPrefixes = [
       "/health",
       "/api/v1/auth/login",
+      "/api/v1/auth/mobile-login",
       "/api/v1/auth/refresh",
       "/api/v1/admin/auth/login",
       "/documentation",

@@ -30,6 +30,12 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "OVERDUE",
 ]);
 
+export const paymentSubmissionStatusEnum = pgEnum("payment_submission_status", [
+  "SUBMITTED",
+  "APPROVED",
+  "REJECTED",
+]);
+
 // ─── Plans ─────────────────────────────────────────────────────────────────────
 
 export const plans = pgTable("plans", {
@@ -61,6 +67,12 @@ export const tenants = pgTable("tenants", {
   status: tenantStatusEnum("status").notNull().default("TRIAL"),
   dbName: text("db_name").notNull().unique(), // mediscala_{slug}
   contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  nif: text("nif"),
+  address: text("address"),
+  areaOfActivity: text("area_of_activity"),
+  logoUrl: text("logo_url"),
+  brandDisplayMode: text("brand_display_mode").notNull().default("LOGO_AND_NAME"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -125,11 +137,22 @@ export const payments = pgTable("payments", {
     .notNull()
     .references(() => tenants.id),
   subscriptionId: uuid("subscription_id").references(() => subscriptions.id),
+  requestedPlanId: uuid("requested_plan_id").references(() => plans.id),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").notNull().default("AOA"),
   status: paymentStatusEnum("status").notNull().default("PENDING"),
+  submissionStatus: paymentSubmissionStatusEnum("submission_status")
+    .notNull()
+    .default("APPROVED"),
   method: text("method"), // transfer, cash, mpesa, etc.
   reference: text("reference"),
+  proofUrl: text("proof_url"),
+  submittedByUserId: uuid("submitted_by_user_id"),
+  reviewedBySuperAdminId: uuid("reviewed_by_super_admin_id").references(
+    () => superAdmins.id,
+  ),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewReason: text("review_reason"),
   notes: text("notes"),
   dueDate: timestamp("due_date", { withTimezone: true }),
   paidAt: timestamp("paid_at", { withTimezone: true }),

@@ -7,6 +7,10 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
   "scripts": {
     "dev": "turbo dev",
     "dev:services": "docker compose -f docker-compose.dev.yml up -d",

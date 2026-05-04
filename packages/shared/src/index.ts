@@ -119,11 +119,29 @@ export const TenantSchema = z.object({
   status: TenantStatus,
   dbName: z.string(),
   contactEmail: z.string().nullable().optional(),
+  contactPhone: z.string().nullable().optional(),
+  nif: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  areaOfActivity: z.string().nullable().optional(),
+  logoUrl: z.string().nullable().optional(),
+  brandDisplayMode: z.enum(["LOGO_AND_NAME", "LOGO_ONLY"]).nullable().optional(),
   notes: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
 export type Tenant = z.infer<typeof TenantSchema>;
+
+export const UpdateInstitutionSchema = z.object({
+  name: z.string().min(2).max(120).optional(),
+  contactEmail: z.string().email().nullable().optional(),
+  contactPhone: z.string().max(40).nullable().optional(),
+  nif: z.string().max(30).nullable().optional(),
+  address: z.string().max(240).nullable().optional(),
+  areaOfActivity: z.string().max(140).nullable().optional(),
+  brandDisplayMode: z.enum(["LOGO_AND_NAME", "LOGO_ONLY"]).optional(),
+  notes: z.string().max(1500).nullable().optional(),
+});
+export type UpdateInstitutionInput = z.infer<typeof UpdateInstitutionSchema>;
 
 // ─── User Schemas ──────────────────────────────────────────────────────────────
 

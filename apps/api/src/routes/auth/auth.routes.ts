@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { LoginSchema, RefreshTokenSchema } from "@mediscala/shared";
 import argon2 from "argon2";
 import { masterPool, getTenantClient } from "../../db/client.js";
@@ -10,8 +10,18 @@ import {
 import { serializeAuthUser } from "../../lib/auth-user.js";
 
 export const authRoutes: FastifyPluginAsync = async (fastify) => {
-  // POST /auth/login
-  fastify.post("/login", async (request, reply) => {
+  const WEB_PANEL_ROLES = new Set(["HOSPITAL_ADMIN", "MANAGER"]);
+  const MOBILE_PANEL_ROLES = new Set([
+    "HOSPITAL_ADMIN",
+    "MANAGER",
+    "COLLABORATOR",
+  ]);
+
+  async function handleLoginWithAllowedRoles(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    allowedRoles: Set<string>,
+  ) {
     const body = LoginSchema.safeParse(request.body);
     if (!body.success) {
       return reply
@@ -28,7 +38,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
         tenant_slug: string;
         user_id: string;
       }>(
-        `SELECT tenant_slug, user_id FROM user_lookups WHERE email = $1 LIMIT 1`,
+        'SELECT tenant_slug, user_id FROM user_lookups WHERE email = $1 LIMIT 1',
         [email],
       );
 
@@ -42,7 +52,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       // 2. Verify tenant is active
       const { rows: tenantRows } = await masterClient.query<{ status: string }>(
-        `SELECT status FROM tenants WHERE slug = $1 LIMIT 1`,
+        'SELECT status FROM tenants WHERE slug = $1 LIMIT 1',
         [tenantSlug],
       );
       if (!tenantRows[0] || tenantRows[0].status === "SUSPENDED") {
@@ -77,6 +87,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
             .send({ error: "Unauthorized", message: "Invalid credentials" });
         }
 
+        if (!allowedRoles.has(foundUser.role as string)) {
+          return reply
+            .status(401)
+            .send({ error: "Unauthorized", message: "Credenciais inválidas" });
+        }
+
         const accessToken = signAccessToken({
           sub: foundUser.id,
           email: foundUser.email,
@@ -105,11 +121,23 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
     } finally {
       masterClient.release();
     }
+  }
+
+  // POST /auth/login
+  fastify.post("/login", async (request, reply) => {
+    return handleLoginWithAllowedRoles(request, reply, WEB_PANEL_ROLES);
+  });
+
+  // POST /auth/mobile-login
+  fastify.post("/mobile-login", async (request, reply) => {
+    return handleLoginWithAllowedRoles(request, reply, MOBILE_PANEL_ROLES);
   });
 
   // POST /auth/refresh
   fastify.post("/refresh", async (request, reply) => {
-    const cookieToken = (request.cookies as any)?.refresh_token;
+    const cookieToken =
+      (request.cookies as { refresh_token?: string } | undefined)
+        ?.refresh_token;
     if (!cookieToken) {
       return reply
         .status(401)
@@ -132,7 +160,7 @@ export const authRoutes: FastifyPluginAsync = async (fastify) => {
       const { rows: lookupRows } = await masterClient.query<{
         tenant_slug: string;
       }>(
-        `SELECT tenant_slug FROM user_lookups WHERE user_id = $1 LIMIT 1`,
+        'SELECT tenant_slug FROM user_lookups WHERE user_id = $1 LIMIT 1',
         [sub],
       );
 

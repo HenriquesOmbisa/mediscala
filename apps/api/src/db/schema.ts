@@ -169,10 +169,20 @@ export const absences = pgTable("absences", {
 
 export const coverageRequests = pgTable("coverage_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
-  absenceId: uuid("absence_id")
-    .notNull()
-    .references(() => absences.id),
+  absenceId: uuid("absence_id").references(() => absences.id),
   status: coverageStatusEnum("status").notNull().default("OPEN"),
+  type: text("type").notNull().default("COVERAGE"),
+  requestedBy: uuid("requested_by").references(() => users.id),
+  sourceAssignmentId: uuid("source_assignment_id").references(
+    () => shiftAssignments.id,
+  ),
+  targetAssignmentId: uuid("target_assignment_id").references(
+    () => shiftAssignments.id,
+  ),
+  swapStatus: text("swap_status"),
+  managerDecisionAt: timestamp("manager_decision_at", { withTimezone: true }),
+  managerDecisionBy: uuid("manager_decision_by").references(() => users.id),
+  managerDecisionReason: text("manager_decision_reason"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
