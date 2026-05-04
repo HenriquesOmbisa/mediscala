@@ -8,6 +8,7 @@ import TenantDetailPage from "./pages/TenantDetailPage";
 import PlansPage from "./pages/PlansPage";
 import SubscriptionsPage from "./pages/SubscriptionsPage";
 import PaymentsPage from "./pages/PaymentsPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -29,6 +30,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="tenants" element={<TenantsPage />} />
         <Route path="tenants/:id" element={<TenantDetailPage />} />
         <Route path="plans" element={<PlansPage />} />

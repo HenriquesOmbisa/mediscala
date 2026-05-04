@@ -1,15 +1,21 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { Plus, CheckCircle } from "lucide-react";
+import { Plus, CheckCircle, XCircle, Eye } from "lucide-react";
 import { formatDate, formatCurrency } from "../lib/utils";
 
 interface Payment {
   id: string;
   amount: number;
   status: string;
+  submissionStatus: "SUBMITTED" | "APPROVED" | "REJECTED";
   dueDate: string | null;
   paidAt: string | null;
+  proofUrl: string | null;
+  reviewReason: string | null;
+  requestedPlanName: string | null;
+  requestedPlanCode: string | null;
+  requestedPlanId: string | null;
   notes: string | null;
   tenant: { id: string; name: string; slug: string };
 }
@@ -48,6 +54,7 @@ function RecordPaymentModal({
         dueDate: form.dueDate || null,
         notes: form.notes || null,
         status: "PENDING",
+        submissionStatus: "APPROVED",
       });
     },
     onSuccess: () => { onSuccess(); onClose(); },
@@ -111,24 +118,40 @@ const statusColors: Record<string, string> = {
   CANCELLED: "bg-gray-100 text-gray-600",
 };
 
+const submissionColors: Record<string, string> = {
+  SUBMITTED: "bg-amber-100 text-amber-700",
+  APPROVED: "bg-emerald-100 text-emerald-700",
+  REJECTED: "bg-rose-100 text-rose-700",
+};
+
 export default function PaymentsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [statusFilter, setStatusFilter] = useState("");
+  const [submissionFilter, setSubmissionFilter] = useState("SUBMITTED");
   const qc = useQueryClient();
 
   const { data, isLoading } = useQuery<Payment[]>({
-    queryKey: ["payments", { status: statusFilter }],
+    queryKey: ["payments", { status: statusFilter, submissionStatus: submissionFilter }],
     queryFn: async () => {
-      const params = statusFilter ? `?status=${statusFilter}` : "";
-      const { data } = await api.get(`/payments${params}`);
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+      if (submissionFilter) params.set("submissionStatus", submissionFilter);
+      const query = params.toString();
+      const { data } = await api.get(`/payments${query ? `?${query}` : ""}`);
       const payload = data?.data ?? data;
       if (!Array.isArray(payload)) return [];
       return payload.map((p: any) => ({
         id: p.id,
         amount: Number(p.amount ?? 0),
         status: p.status,
+        submissionStatus: p.submissionStatus,
         dueDate: p.dueDate,
         paidAt: p.paidAt,
+        proofUrl: p.proofUrl ?? null,
+        reviewReason: p.reviewReason ?? null,
+        requestedPlanName: p.requestedPlanName ?? null,
+        requestedPlanCode: p.requestedPlanCode ?? null,
+        requestedPlanId: p.requestedPlanId ?? null,
         notes: p.notes,
         tenant: {
           id: p.tenantId,
@@ -139,9 +162,28 @@ export default function PaymentsPage() {
     },
   });
 
+  const submittedCount = useMemo(
+    () => data?.filter((p) => p.submissionStatus === "SUBMITTED").length ?? 0,
+    [data],
+  );
+
   const markPaidMutation = useMutation({
     mutationFn: async (id: string) =>
       api.patch(`/payments/${id}`, { status: "PAID", paidAt: new Date().toISOString() }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["payments"] }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (payment: Payment) =>
+      api.post(`/payments/${payment.id}/approve`, {
+        planId: payment.requestedPlanId,
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["payments"] }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ paymentId, reason }: { paymentId: string; reason: string }) =>
+      api.post(`/payments/${paymentId}/reject`, { reviewReason: reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payments"] }),
   });
 
@@ -150,9 +192,21 @@ export default function PaymentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Pagamentos</h1>
-          <p className="text-sm text-gray-500 mt-1">{data?.length ?? 0} pagamento(s)</p>
+          <p className="text-sm text-gray-500 mt-1">
+            {data?.length ?? 0} registo(s) • {submittedCount} pendente(s) de análise
+          </p>
         </div>
         <div className="flex items-center gap-3">
+          <select
+            className="input text-sm py-2"
+            value={submissionFilter}
+            onChange={(e) => setSubmissionFilter(e.target.value)}
+          >
+            <option value="">Todas as submissões</option>
+            <option value="SUBMITTED">Submetidos</option>
+            <option value="APPROVED">Aprovados</option>
+            <option value="REJECTED">Rejeitados</option>
+          </select>
           <select
             className="input text-sm py-2"
             value={statusFilter}
@@ -182,10 +236,12 @@ export default function PaymentsPage() {
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
                 <th className="text-left px-5 py-3 font-medium text-gray-600">Empresa</th>
+                <th className="text-left px-5 py-3 font-medium text-gray-600">Plano solicitado</th>
                 <th className="text-left px-5 py-3 font-medium text-gray-600">Valor</th>
+                <th className="text-left px-5 py-3 font-medium text-gray-600">Submissão</th>
                 <th className="text-left px-5 py-3 font-medium text-gray-600">Vencimento</th>
                 <th className="text-left px-5 py-3 font-medium text-gray-600">Pago em</th>
-                <th className="text-left px-5 py-3 font-medium text-gray-600">Estado</th>
+                <th className="text-left px-5 py-3 font-medium text-gray-600">Contábil</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
@@ -193,7 +249,18 @@ export default function PaymentsPage() {
               {data?.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50">
                   <td className="px-5 py-3 font-medium text-gray-900">{p.tenant?.name ?? "—"}</td>
+                  <td className="px-5 py-3 text-gray-600">
+                    {p.requestedPlanName ? `${p.requestedPlanName} (${p.requestedPlanCode ?? "-"})` : "—"}
+                  </td>
                   <td className="px-5 py-3 text-gray-700 font-medium">{formatCurrency(p.amount)}</td>
+                  <td className="px-5 py-3">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${submissionColors[p.submissionStatus] ?? "bg-gray-100"}`}>
+                      {p.submissionStatus}
+                    </span>
+                    {p.reviewReason && (
+                      <p className="text-xs text-rose-600 mt-1">{p.reviewReason}</p>
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-gray-500">{formatDate(p.dueDate)}</td>
                   <td className="px-5 py-3 text-gray-500">{formatDate(p.paidAt)}</td>
                   <td className="px-5 py-3">
@@ -202,21 +269,58 @@ export default function PaymentsPage() {
                     </span>
                   </td>
                   <td className="px-5 py-3 text-right">
-                    {p.status === "PENDING" && (
-                      <button
-                        onClick={() => markPaidMutation.mutate(p.id)}
-                        className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900 hover:bg-green-50 px-2 py-1 rounded-md transition-colors"
-                      >
-                        <CheckCircle className="h-3.5 w-3.5" />
-                        Marcar pago
-                      </button>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {p.proofUrl && (
+                        <a
+                          href={p.proofUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-50 px-2 py-1 rounded-md transition-colors"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Prova
+                        </a>
+                      )}
+                      {p.submissionStatus === "SUBMITTED" && (
+                        <>
+                          <button
+                            onClick={() => approveMutation.mutate(p)}
+                            disabled={approveMutation.isPending}
+                            className="inline-flex items-center gap-1 text-xs text-emerald-700 hover:text-emerald-900 hover:bg-emerald-50 px-2 py-1 rounded-md transition-colors"
+                          >
+                            <CheckCircle className="h-3.5 w-3.5" />
+                            Aprovar
+                          </button>
+                          <button
+                            onClick={() => {
+                              const reason = window.prompt("Motivo da rejeição:");
+                              if (!reason) return;
+                              rejectMutation.mutate({ paymentId: p.id, reason });
+                            }}
+                            disabled={rejectMutation.isPending}
+                            className="inline-flex items-center gap-1 text-xs text-rose-700 hover:text-rose-900 hover:bg-rose-50 px-2 py-1 rounded-md transition-colors"
+                          >
+                            <XCircle className="h-3.5 w-3.5" />
+                            Rejeitar
+                          </button>
+                        </>
+                      )}
+                      {p.status === "PENDING" && p.submissionStatus !== "SUBMITTED" && (
+                        <button
+                          onClick={() => markPaidMutation.mutate(p.id)}
+                          className="inline-flex items-center gap-1 text-xs text-green-700 hover:text-green-900 hover:bg-green-50 px-2 py-1 rounded-md transition-colors"
+                        >
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          Marcar pago
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
               {!data?.length && (
                 <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-gray-400">
+                  <td colSpan={8} className="px-5 py-8 text-center text-gray-400">
                     Nenhum pagamento encontrado
                   </td>
                 </tr>
