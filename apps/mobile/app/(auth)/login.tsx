@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactElement } from "react";
 import {
   View,
   Text,
@@ -14,13 +14,14 @@ import {
 import { useRouter } from "expo-router";
 import { api } from "../../src/lib/api";
 import { authStorage } from "../../src/lib/auth-storage";
+import { getInitialAppRouteByRole } from "../../src/lib/role-routes";
 import { LoginSchema } from "@mediscala/shared";
 import { Eye, EyeOff, CheckSquare, Square } from "lucide-react-native";
 
 const NAVY = "#162B4A";
 const TEAL = "#2ABFBF";
 
-export default function LoginScreen() {
+export default function LoginScreen(): ReactElement {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -46,7 +47,10 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/mobile-login", {
+        email,
+        password,
+      });
       const { accessToken, user } = data.data;
       if (rememberMe) {
         await authStorage.saveEmail(email);
@@ -54,7 +58,7 @@ export default function LoginScreen() {
         await authStorage.clearSavedEmail();
       }
       await authStorage.save(accessToken, user);
-      router.replace("/(app)/shifts");
+      router.replace(getInitialAppRouteByRole(user.role));
     } catch (err: any) {
       Alert.alert(
         "Erro",

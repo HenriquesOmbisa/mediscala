@@ -10,7 +10,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { api } from "../../src/lib/api";
 import { authStorage } from "../../src/lib/auth-storage";
 import { meRowToAuthUser, type MeRow } from "../../src/lib/profile-map";
@@ -19,7 +19,7 @@ import { ArrowLeft } from "lucide-react-native";
 const NAVY = "#162B4A";
 const TEAL = "#2ABFBF";
 
-export default function EditProfileScreen() {
+export default function EditProfileScreen(): ReactElement {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

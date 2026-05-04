@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   useWindowDimensions,
 } from "react-native";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import {
   Calendar as RNCalendar,
   LocaleConfig,
@@ -124,7 +124,7 @@ const statusConfig: Record<
   },
 };
 
-export default function ShiftsScreen() {
+export default function ShiftsScreen(): ReactElement {
   useNotifications();
   const { width } = useWindowDimensions();
   const calWidth = Math.min(width - 32, 400);

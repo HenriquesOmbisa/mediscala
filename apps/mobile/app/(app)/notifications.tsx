@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import {
   View,
   Text,
@@ -13,7 +14,7 @@ import { Bell } from "lucide-react-native";
 const TEAL = "#2ABFBF";
 const NAVY = "#162B4A";
 
-export default function NotificationsScreen() {
+export default function NotificationsScreen(): ReactElement {
   const queryClient = useQueryClient();
 
   const { data, isLoading, refetch, isFetching } = useQuery({

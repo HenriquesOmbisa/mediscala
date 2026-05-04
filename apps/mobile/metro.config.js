@@ -21,6 +21,9 @@ config.resolver.nodeModulesPaths = [
 
 // Resolve @mediscala/shared from source (skip the build step)
 config.resolver.extraNodeModules = {
+  react: path.resolve(monorepoRoot, "node_modules/react"),
+  "react-dom": path.resolve(monorepoRoot, "node_modules/react-dom"),
+  "react-native": path.resolve(monorepoRoot, "node_modules/react-native"),
   "@mediscala/shared": path.resolve(monorepoRoot, "packages/shared/src"),
 };
 

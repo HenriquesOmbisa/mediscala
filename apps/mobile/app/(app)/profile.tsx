@@ -6,12 +6,13 @@ import {
   ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode, type ReactElement } from "react";
 import * as ImagePicker from "expo-image-picker";
 import { Image } from "expo-image";
 import { authStorage } from "../../src/lib/auth-storage";
 import type { AuthResponse } from "@mediscala/shared";
 import { api } from "../../src/lib/api";
+import { getEditProfileRouteByRole } from "../../src/lib/role-routes";
 import { meRowToAuthUser, type MeRow } from "../../src/lib/profile-map";
 import { resolveMediaUrl } from "../../src/lib/media-url";
 import {
@@ -33,7 +34,7 @@ const roleLabel: Record<string, string> = {
   COLLABORATOR: "Colaborador",
 };
 
-export default function ProfileScreen() {
+export default function ProfileScreen(): ReactElement {
   const router = useRouter();
   const [user, setUser] = useState<AuthResponse["user"] | null>(null);
   const [me, setMe] = useState<MeRow | null>(null);
@@ -306,7 +307,11 @@ export default function ProfileScreen() {
             borderColor: `${TEAL}55`,
           }}
           onPress={() =>
-            router.push("/edit-profile" as Parameters<typeof router.push>[0])
+            router.push(
+              getEditProfileRouteByRole(user?.role) as Parameters<
+                typeof router.push
+              >[0],
+            )
           }
         >
           <Pencil size={17} color={NAVY} />

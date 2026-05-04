@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import {
   View,
   Text,
@@ -15,7 +16,7 @@ import { Shield } from "lucide-react-native";
 const NAVY = "#162B4A";
 const TEAL = "#2ABFBF";
 
-export default function CoverageScreen() {
+export default function CoverageScreen(): ReactElement {
   const queryClient = useQueryClient();
 
   useWebSocket({
